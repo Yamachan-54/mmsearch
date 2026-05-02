@@ -19,9 +19,19 @@ except ImportError:
 
 COOKIE_NAME = "MMAUTHTOKEN"
 
-# Detection order: most-popular first. Brave shares Chrome's profile format
-# but is checked separately because its profile lives elsewhere.
-SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari")
+# Detection order: most-popular first. Each Chromium-based browser ships with
+# its own profile directory, so they are listed individually rather than
+# treated as "Chrome variants".
+SUPPORTED_BROWSERS = (
+    "chrome",
+    "chromium",
+    "firefox",
+    "edge",
+    "brave",
+    "vivaldi",
+    "opera",
+    "safari",
+)
 
 
 class CookieError(Exception):

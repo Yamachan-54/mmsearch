@@ -70,7 +70,7 @@ mmsearch search "質問" -c "課題" --since 2026-04-01
 |---------|------|
 | `mmsearch init` | 対話式セットアップ（推奨：ブラウザから自動取得） |
 | `mmsearch login` | ブラウザから新トークン取得（セッション切れ時） |
-| `mmsearch login --browser chrome` | ブラウザ指定 |
+| `mmsearch login --browser chromium` | ブラウザ指定（chrome/chromium/firefox/edge/brave/vivaldi/opera/safari） |
 | `mmsearch doctor` | 設定・接続確認 |
 | `mmsearch sync` | 投稿を同期（差分） |
 | `mmsearch sync --full` | フル再取得 |

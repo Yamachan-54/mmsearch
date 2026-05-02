@@ -179,7 +179,7 @@ def login(
     browser: str = typer.Option(
         "auto",
         "--browser",
-        help="Browser: auto/chrome/firefox/edge/brave/safari",
+        help="Browser: auto/chrome/chromium/firefox/edge/brave/vivaldi/opera/safari",
     ),
 ) -> None:
     """Refresh the saved token by reading MMAUTHTOKEN from your browser."""

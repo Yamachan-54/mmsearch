@@ -37,10 +37,12 @@ mmsearch init
 
 ```bash
 mmsearch init --browser firefox
-mmsearch login --browser chrome
+mmsearch login --browser chromium
 ```
 
-サポートブラウザ: `auto` / `chrome` / `firefox` / `edge` / `brave` / `safari`（macOSのみ）
+サポートブラウザ: `auto` / `chrome` / `chromium` / `firefox` / `edge` / `brave` / `vivaldi` / `opera` / `safari`（safariはmacOSのみ）
+
+> 💡 **Chrome と Chromium は別物** として扱われます（プロファイルの保存場所が異なるため）。Chromium ユーザーは `--browser chromium` を指定するか、`auto` で自動検出させてください。
 
 ### フォールバック: 手動ペースト
 

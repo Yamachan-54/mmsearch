@@ -33,17 +33,28 @@ def test_extract_specific_browser(fake_bc3: MagicMock) -> None:
 
 
 def test_extract_auto_tries_browsers_in_order(fake_bc3: MagicMock) -> None:
-    """auto should try chrome → firefox → ... and return first hit."""
+    """auto should try chrome → chromium → firefox → ... and stop at first hit."""
     fake_bc3.chrome.side_effect = RuntimeError("no chrome profile")
+    fake_bc3.chromium.side_effect = RuntimeError("no chromium profile")
     fake_bc3.firefox.return_value = [_cookie("MMAUTHTOKEN", "ff_token")]
-    # edge/brave/safari should not be called once firefox succeeds
 
     token, used = auth.extract_cookie("https://mm.example.com")
     assert token == "ff_token"
     assert used == "firefox"
     fake_bc3.edge.assert_not_called()
     fake_bc3.brave.assert_not_called()
+    fake_bc3.vivaldi.assert_not_called()
+    fake_bc3.opera.assert_not_called()
     fake_bc3.safari.assert_not_called()
+
+
+def test_extract_chromium_specifically(fake_bc3: MagicMock) -> None:
+    """Chromium has a separate profile path from Chrome; must support it."""
+    fake_bc3.chromium.return_value = [_cookie("MMAUTHTOKEN", "chromium_token")]
+    token, used = auth.extract_cookie("https://mm.example.com", browser="chromium")
+    assert token == "chromium_token"
+    assert used == "chromium"
+    fake_bc3.chromium.assert_called_once_with(domain_name="mm.example.com")
 
 
 def test_extract_auto_collects_errors_when_all_fail(fake_bc3: MagicMock) -> None:
@@ -64,7 +75,7 @@ def test_extract_auto_collects_errors_when_all_fail(fake_bc3: MagicMock) -> None
 
 def test_extract_unknown_browser_raises(fake_bc3: MagicMock) -> None:
     with pytest.raises(auth.CookieError, match="unknown browser"):
-        auth.extract_cookie("https://mm.example.com", browser="opera")
+        auth.extract_cookie("https://mm.example.com", browser="netscape")
 
 
 def test_extract_invalid_url_raises(fake_bc3: MagicMock) -> None:
