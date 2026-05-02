@@ -1,4 +1,4 @@
-"""CLI entry point."""
+"""CLI のエントリポイント。typer ベースで全コマンドを定義する。"""
 from __future__ import annotations
 
 import re
@@ -31,7 +31,7 @@ TOKEN_MISSING_HINT = (
 
 app = typer.Typer(
     name="mmsearch",
-    help="Mattermost personal local full-text search tool",
+    help="Mattermost のメッセージをローカルで全文検索する CLI ツール",
     no_args_is_help=True,
 )
 console = Console()
@@ -40,13 +40,13 @@ err = Console(stderr=True)
 
 @app.command()
 def version() -> None:
-    """Show version."""
+    """バージョンを表示する。"""
     console.print(f"mmsearch {__version__}")
 
 
 @app.command()
 def doctor() -> None:
-    """Verify configuration and connectivity."""
+    """設定とサーバ接続を確認する。"""
     cfg = config.Config.load()
     console.print(f"config:  {config.config_path()}")
     console.print(f"db:      {config.db_path()}")
@@ -85,7 +85,7 @@ def _validate_url(url: str) -> str:
 
 
 def _acquire_token(server_url: str, *, prefer_browser: bool, browser: str) -> str:
-    """Get a token either via browser cookie extraction or manual paste."""
+    """トークンを取得する。ブラウザCookie抽出または手動ペーストで実現。"""
     if prefer_browser:
         console.print(f"\n[dim]Extracting MMAUTHTOKEN from browser ({browser})...[/dim]")
         try:
@@ -106,7 +106,7 @@ def _acquire_token(server_url: str, *, prefer_browser: bool, browser: str) -> st
 
 
 def _verify_and_get_teams(server_url: str, token: str) -> list[dict]:
-    """Verify token by calling /users/me, then return team list."""
+    """`/users/me` を叩いてトークンを検証し、続けて所属チーム一覧を返す。"""
     try:
         with client.MattermostClient(server_url, token) as c:
             me = c.me()
@@ -120,13 +120,13 @@ def _verify_and_get_teams(server_url: str, token: str) -> list[dict]:
 @app.command()
 def init(
     browser: str = typer.Option(
-        "auto", "--browser", help="Browser for cookie auto-extraction"
+        "auto", "--browser", help="Cookie 自動抽出に使うブラウザ"
     ),
     no_browser: bool = typer.Option(
-        False, "--no-browser", help="Skip browser extraction; paste token manually"
+        False, "--no-browser", help="ブラウザ抽出をスキップして手動ペーストする"
     ),
 ) -> None:
-    """Interactive setup wizard."""
+    """対話形式でセットアップウィザードを実行する。"""
     console.print("[bold]mmsearch initial setup[/bold]\n")
 
     while True:
@@ -179,10 +179,10 @@ def login(
     browser: str = typer.Option(
         "auto",
         "--browser",
-        help="Browser: auto/chrome/chromium/firefox/edge/brave/vivaldi/opera/safari",
+        help="ブラウザ: auto/chrome/chromium/firefox/edge/brave/vivaldi/opera/safari",
     ),
 ) -> None:
-    """Refresh the saved token by reading MMAUTHTOKEN from your browser."""
+    """ブラウザの Cookie から `MMAUTHTOKEN` を再取得して保存する。"""
     cfg = config.Config.load()
     if not cfg.server_url:
         err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
@@ -206,16 +206,16 @@ def login(
 @app.command()
 def reset(
     config_only: bool = typer.Option(
-        False, "--config", help="Reset config + token only (keep database)"
+        False, "--config", help="設定とトークンのみ削除（DBは残す）"
     ),
     db_only: bool = typer.Option(
-        False, "--db", help="Reset database only (keep config + token)"
+        False, "--db", help="DBのみ削除（設定とトークンは残す）"
     ),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip confirmation prompt"
+        False, "--yes", "-y", help="確認プロンプトをスキップする"
     ),
 ) -> None:
-    """Reset local data: config, saved token, and/or database."""
+    """ローカルデータを削除する: 設定 / 保存済みトークン / DB。"""
     if config_only and db_only:
         err.print("[red]✗[/red] cannot specify both --config and --db")
         raise typer.Exit(2)
@@ -256,7 +256,7 @@ def reset(
 
 @app.command(name="token-refresh")
 def token_refresh() -> None:
-    """Update the saved token by manual paste (use [bold]login[/bold] for browser auto-extract)."""
+    """手動ペーストでトークンを更新する（ブラウザ自動取得なら [bold]login[/bold] を推奨）。"""
     cfg = config.Config.load()
     if not cfg.server_url:
         err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
@@ -279,10 +279,10 @@ def token_refresh() -> None:
 @app.command()
 def sync(
     full: bool = typer.Option(
-        False, "--full", help="Force full re-sync from the beginning"
+        False, "--full", help="差分同期ではなく最初からフル同期する"
     ),
 ) -> None:
-    """Sync posts from Mattermost into the local database."""
+    """Mattermost の投稿をローカルDBに同期する。"""
     cfg = config.Config.load()
     if not cfg.server_url or not cfg.team_id:
         err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
@@ -355,8 +355,10 @@ def _format_timestamp(ms: int) -> str:
 
 
 def _make_snippet(message: str, query: str, max_len: int = 280) -> tuple[str, bool, bool]:
-    """Return (snippet, has_prefix_ellipsis, has_suffix_ellipsis).
-    Trims around the first match while keeping context.
+    """投稿本文からマッチ箇所周辺を切り出す。
+
+    戻り値: (スニペット, 前方省略あり, 後方省略あり)。マッチ位置を中心に
+    前後の文脈を残しつつ全体を `max_len` 文字以内に収める。
     """
     if len(message) <= max_len:
         return message, False, False
@@ -394,27 +396,27 @@ def _render_hit(hit, query: str) -> None:
 
 @app.command()
 def search(
-    query: str = typer.Argument(..., help="Search keyword (substring match)"),
+    query: str = typer.Argument(..., help="検索キーワード（部分一致）"),
     channel: str = typer.Option(
-        None, "--channel", "-c", help="Filter by channel name (partial match)"
+        None, "--channel", "-c", help="チャンネル名で絞り込む（部分一致）"
     ),
     user: str = typer.Option(
-        None, "--user", "-u", help="Filter by exact username"
+        None, "--user", "-u", help="ユーザー名で絞り込む（完全一致）"
     ),
     since: str = typer.Option(
-        None, "--since", help="From date (YYYY-MM-DD or YYYY-MM-DDTHH:MM)"
+        None, "--since", help="この日付以降（YYYY-MM-DD または YYYY-MM-DDTHH:MM）"
     ),
     until: str = typer.Option(
-        None, "--until", help="Until date (YYYY-MM-DD or YYYY-MM-DDTHH:MM)"
+        None, "--until", help="この日付以前（YYYY-MM-DD または YYYY-MM-DDTHH:MM）"
     ),
     limit: int = typer.Option(
-        search_engine.DEFAULT_LIMIT, "--limit", "-n", help="Max results"
+        search_engine.DEFAULT_LIMIT, "--limit", "-n", help="最大件数"
     ),
     all_results: bool = typer.Option(
-        False, "--all", help="Return every match, ignoring --limit"
+        False, "--all", help="件数制限を無視して全件取得する"
     ),
 ) -> None:
-    """Search posts in the local database."""
+    """ローカルDBから投稿を検索する。"""
     db.init_db()
     effective_limit = None if all_results else limit
     try:
@@ -450,12 +452,12 @@ def search(
 
 @app.command(name="open")
 def open_(
-    post_id: str = typer.Argument(..., help="Post ID (shown after each search hit)"),
+    post_id: str = typer.Argument(..., help="投稿ID（検索結果の各ヒット末尾に表示される）"),
     print_only: bool = typer.Option(
-        False, "--print", help="Print the URL instead of opening the browser"
+        False, "--print", help="ブラウザを開かずURLだけ表示する"
     ),
 ) -> None:
-    """Open a post in your default browser."""
+    """既定のブラウザで投稿を開く。"""
     cfg = config.Config.load()
     if not cfg.server_url:
         err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
@@ -480,7 +482,7 @@ def open_(
 
 @app.command()
 def channels() -> None:
-    """List synced channels with sync status."""
+    """同期済みチャンネルの一覧と最終同期日時を表示する。"""
     db.init_db()
     conn = db.connect()
     try:

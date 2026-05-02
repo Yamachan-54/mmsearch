@@ -1,4 +1,4 @@
-"""Sync Mattermost posts to local SQLite database."""
+"""Mattermost の投稿をローカル SQLite に同期するエンジン。"""
 from __future__ import annotations
 
 import sqlite3
@@ -9,10 +9,21 @@ from typing import Any
 from . import client as mm_client
 from . import config as config_mod
 
+# 1ページあたりの取得件数。Mattermost のデフォルト上限と整合させた値
 PER_PAGE = 200
-RATE_LIMIT_DELAY = 0.1   # seconds between paginated requests
-MAX_PAGES_PER_CHANNEL = 5000  # safety cap (≈1M posts per channel)
-SINCE_OVERLAP_MS = 1000  # re-fetch overlap to handle edge-of-second posts
+
+# ページ間の待機時間。サーバのレートリミット（一般的に 10req/s）に
+# 余裕を持たせる
+RATE_LIMIT_DELAY = 0.1
+
+# チャンネル単位の上限ページ数。暴走防止の安全装置として用意。
+# 200件 × 5000ページ ≒ 100万投稿まで取得可能で、現実的に十分な値
+MAX_PAGES_PER_CHANNEL = 5000
+
+# 差分同期で `since` パラメータに渡す際のオーバーラップ幅（ミリ秒）。
+# 1秒の境界をまたぐ投稿が取りこぼされるのを防ぐため、最後の同期時刻から
+# 1秒だけ遡って再取得する（同じ投稿は ON CONFLICT で上書きされるので無害）
+SINCE_OVERLAP_MS = 1000
 
 OnProgress = Callable[[int], None]
 
@@ -20,7 +31,11 @@ OnProgress = Callable[[int], None]
 def fetch_channels(
     client: mm_client.MattermostClient, cfg: config_mod.Config
 ) -> list[dict[str, Any]]:
-    """Return channels to sync, filtered by configured IDs if any."""
+    """同期対象のチャンネル一覧を返す。
+
+    `cfg.sync_channel_ids` が指定されていれば、そのIDに含まれるものだけに絞る。
+    指定がなければ自分が参加している全チャンネルが対象。
+    """
     channels = client.my_channels(cfg.team_id)
     if cfg.sync_channel_ids:
         wanted = set(cfg.sync_channel_ids)
@@ -29,6 +44,8 @@ def fetch_channels(
 
 
 def upsert_channel(conn: sqlite3.Connection, ch: dict[str, Any]) -> None:
+    # `last_synced_at` は INSERT 時のみ 0 で初期化し、UPDATE 時は触らない。
+    # チャンネル名変更などで再 upsert された場合に同期進捗が失われないようにするため。
     conn.execute(
         """
         INSERT INTO channels (id, team_id, name, display_name, type, last_synced_at)
@@ -44,7 +61,7 @@ def upsert_channel(conn: sqlite3.Connection, ch: dict[str, Any]) -> None:
 
 
 def _upsert_posts(conn: sqlite3.Connection, posts: dict[str, dict[str, Any]]) -> int:
-    """Upsert posts. Returns count processed."""
+    """投稿を upsert する。処理した件数を返す。"""
     if not posts:
         return 0
     rows = [
@@ -59,6 +76,8 @@ def _upsert_posts(conn: sqlite3.Connection, posts: dict[str, dict[str, Any]]) ->
         )
         for p in posts.values()
     ]
+    # Mattermost では投稿の編集が許可されている場合があり、その場合 update_at と
+    # message が変わる。再取得時に差分を反映するため ON CONFLICT で更新している
     conn.executemany(
         """
         INSERT INTO posts (id, channel_id, user_id, create_at, update_at, root_id, message)
@@ -79,11 +98,15 @@ def _ensure_users(
     user_ids: set[str],
     cache: set[str],
 ) -> None:
-    """Fetch missing users from API and cache them in DB. Cache is per-process."""
+    """投稿者情報をDBに揃える。
+
+    2段階キャッシュで API 呼び出しを最小化する設計:
+    - `cache` (プロセス内 set): 同一 sync 実行中の重複呼び出しを防ぐ
+    - DB の users テーブル: 既知ユーザーは API を再度叩かずスキップ
+    """
     todo = user_ids - cache
     if not todo:
         return
-    # Filter by what's already in DB
     placeholders = ",".join("?" * len(todo))
     existing = {
         r[0]
@@ -106,7 +129,8 @@ def _ensure_users(
                 (u["id"], u.get("username", "(unknown)"), u.get("nickname")),
             )
         except mm_client.MattermostError:
-            # Could be a deleted user — store placeholder so we don't retry
+            # 削除済みユーザー等で取得に失敗した場合は、無限リトライを避けるため
+            # プレースホルダ値で記録しておく
             conn.execute(
                 "INSERT OR IGNORE INTO users (id, username) VALUES (?, ?)",
                 (uid, "(unknown)"),
@@ -124,7 +148,7 @@ def sync_channel(
     on_progress: OnProgress | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Sync one channel. Returns number of posts upserted."""
+    """1チャンネル分の同期を行う。upsert された投稿数を返す。"""
     user_cache = user_cache if user_cache is not None else set()
     channel_id = channel["id"]
 
@@ -137,7 +161,8 @@ def sync_channel(
     max_create_at = last_synced
 
     if last_synced > 0:
-        # Incremental: ?since=<ms>. Returns up to ~1000 posts modified since then.
+        # 差分同期: ?since=<ms> で最終同期以降の投稿を取得
+        # API は1リクエストで最大 ~1000 件返すため、通常はページングなしで済む
         since = max(0, last_synced - SINCE_OVERLAP_MS)
         resp = client.channel_posts(channel_id, since=since, per_page=PER_PAGE)
         posts = resp.get("posts") or {}
@@ -152,7 +177,7 @@ def sync_channel(
             if on_progress:
                 on_progress(n)
     else:
-        # Full sync: page-based pagination, newest first
+        # フル同期: 新しい順にページネーションで取得
         for page in range(MAX_PAGES_PER_CHANNEL):
             resp = client.channel_posts(channel_id, page=page, per_page=PER_PAGE)
             order = resp.get("order") or []
@@ -168,6 +193,8 @@ def sync_channel(
                     max_create_at = p["create_at"]
             if on_progress:
                 on_progress(n)
+            # `posts` 辞書はスレッドの親投稿も含むため `order` よりも要素数が多くなりうる。
+            # 終端判定は実際のページ件数を表す `order` の長さで行う必要がある。
             if len(order) < PER_PAGE:
                 break
             sleep(RATE_LIMIT_DELAY)

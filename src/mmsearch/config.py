@@ -1,4 +1,4 @@
-"""Configuration and platform paths (XDG-compliant)."""
+"""設定ファイルとプラットフォーム別パスの管理（XDG Base Directory 準拠）。"""
 from __future__ import annotations
 
 import os
@@ -44,7 +44,8 @@ def db_path() -> Path:
 class Config:
     server_url: str = ""
     team_id: str = ""
-    sync_channel_ids: list[str] = field(default_factory=list)  # empty = all my channels
+    # 空の場合は所属している全チャンネルを同期対象にする
+    sync_channel_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls) -> Config:
@@ -64,4 +65,6 @@ class Config:
         payload: dict[str, Any] = asdict(self)
         with open(p, "wb") as f:
             tomli_w.dump(payload, f)
+        # config.toml にトークンは入らないが、サーバURLなど環境を特定できる情報を含むため
+        # オーナーのみ読み書き可能（0600）にしておく
         os.chmod(p, 0o600)

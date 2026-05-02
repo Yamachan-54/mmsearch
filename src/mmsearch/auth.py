@@ -1,12 +1,8 @@
-"""Browser cookie extraction for Mattermost authentication.
+"""ブラウザの既存 Cookie から `MMAUTHTOKEN` を抽出する認証モジュール。
 
-Reads the `MMAUTHTOKEN` cookie from the user's existing browser session,
-so they never have to manually paste it from DevTools. Works with Chrome,
-Firefox, Edge, Brave, and Safari (the latter only on macOS).
-
-This is the `mmsearch login` flow — works regardless of the server's
-authentication method (password / SSO / SAML), since we read the cookie
-that the browser already obtained after a successful interactive login.
+ユーザーがすでにブラウザでログイン済みの状態を流用するため、Mattermost 側の
+認証方式（ID/Password・SSO・SAML 等）を問わず動作するのが利点。`mmsearch login`
+コマンドのバックエンドとして使われる。
 """
 from __future__ import annotations
 
@@ -15,13 +11,15 @@ from urllib.parse import urlparse
 try:
     import browser_cookie3 as _bc3
 except ImportError:
+    # browser_cookie3 が未インストールの場合は extract_cookie 内で
+    # 親切なエラーメッセージを出すため、ここでは握りつぶす
     _bc3 = None
 
 COOKIE_NAME = "MMAUTHTOKEN"
 
-# Detection order: most-popular first. Each Chromium-based browser ships with
-# its own profile directory, so they are listed individually rather than
-# treated as "Chrome variants".
+# 自動検出の試行順。Chromium 系ブラウザはそれぞれ独立したプロファイルディレクトリを
+# 持つため `chrome` ひとつで代用できず、個別に列挙する必要がある。
+# 順序の方針: 利用率の高いブラウザを先頭に、Chromium 系をまとめて、最後に Safari。
 SUPPORTED_BROWSERS = (
     "chrome",
     "chromium",
@@ -35,7 +33,7 @@ SUPPORTED_BROWSERS = (
 
 
 class CookieError(Exception):
-    """Cookie extraction failed."""
+    """Cookie 抽出に失敗した際に投げる例外。"""
 
 
 def _domain_from_url(url: str) -> str:
@@ -46,8 +44,10 @@ def _domain_from_url(url: str) -> str:
 
 
 def _bc3_module():
-    """Return the browser_cookie3 module, raising CookieError if unavailable.
-    Re-imported each call so test monkeypatching of the alias works.
+    """browser_cookie3 モジュールを返す。未インストールなら CookieError。
+
+    関数経由にしているのは、テストでモジュール属性 `_bc3` を monkeypatch で
+    差し替え可能にするため。
     """
     if _bc3 is None:
         raise CookieError(
@@ -58,7 +58,7 @@ def _bc3_module():
 
 
 def _extract_one(browser: str, domain: str):
-    """Try one browser; return cookie value or raise."""
+    """指定された1つのブラウザから Cookie を取り出す。失敗したら例外を投げる。"""
     bc3 = _bc3_module()
     fn = getattr(bc3, browser, None)
     if fn is None:
@@ -71,11 +71,11 @@ def _extract_one(browser: str, domain: str):
 
 
 def extract_cookie(server_url: str, browser: str = "auto") -> tuple[str, str]:
-    """Return (token, browser_used).
+    """`MMAUTHTOKEN` を抽出して (token, 使用したブラウザ名) を返す。
 
-    `browser="auto"` tries each backend in `SUPPORTED_BROWSERS` order and
-    returns the first hit. Specific browsers raise `CookieError` immediately
-    on failure so callers can give precise diagnostics.
+    `browser='auto'` の場合は `SUPPORTED_BROWSERS` の順で試行し、最初に成功した
+    ブラウザの値を返す。特定のブラウザを指定した場合は失敗時に即座に CookieError
+    を上げ、呼び出し元が原因を判別できるようにする。
     """
     domain = _domain_from_url(server_url)
 
