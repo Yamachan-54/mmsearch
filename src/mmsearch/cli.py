@@ -5,6 +5,7 @@ import re
 import webbrowser
 from datetime import UTC, datetime
 
+import click
 import typer
 from rich.console import Console
 from rich.progress import (
@@ -15,6 +16,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.text import Text
+from typer.core import TyperCommand, TyperGroup
 
 from . import __version__, auth, client, config, db, tokens
 from . import search as search_engine
@@ -29,22 +31,60 @@ TOKEN_MISSING_HINT = (
     "or [bold]mmsearch token-refresh[/bold] (manual paste)."
 )
 
+
+class _JapaneseHelpMixin:
+    """`--help` のデフォルト説明文（英語）を日本語に差し替える mixin。
+
+    Click のデフォルトでは `--help` の help テキストが英語固定
+    （"Show this message and exit."）。グループとサブコマンドの両方で
+    `get_help_option` を上書きする必要があるため、共通処理を mixin にしている。
+    Click の内部実装に依存するため、将来の Click 大型アップデート時に追従が
+    必要になる可能性がある。
+    """
+
+    def get_help_option(self, ctx: click.Context) -> click.Option | None:
+        opt = super().get_help_option(ctx)
+        if opt is not None:
+            opt.help = "このヘルプを表示して終了する。"
+        return opt
+
+
+class JapaneseTyperCommand(_JapaneseHelpMixin, TyperCommand):
+    pass
+
+
+class JapaneseTyperGroup(_JapaneseHelpMixin, TyperGroup):
+    pass
+
+
 app = typer.Typer(
     name="mmsearch",
     help="Mattermost のメッセージをローカルで全文検索する CLI ツール",
     no_args_is_help=True,
+    # シェル補完の自動インストールオプションは受講生向け配布では不要なので無効化
+    add_completion=False,
+    cls=JapaneseTyperGroup,
 )
+
+
+# typer は @app.command() のデフォルト Click クラスを TyperGroup から継承しないため、
+# 全コマンドへの適用は薄いラッパ経由で行う（cls= 指定の重複を避けるため）
+def _command(*args, **kwargs):
+    kwargs.setdefault("cls", JapaneseTyperCommand)
+    return app.command(*args, **kwargs)
+
+
 console = Console()
 err = Console(stderr=True)
 
 
-@app.command()
+@_command()
 def version() -> None:
     """バージョンを表示する。"""
     console.print(f"mmsearch {__version__}")
 
 
-@app.command()
+@_command()
 def doctor() -> None:
     """設定とサーバ接続を確認する。"""
     cfg = config.Config.load()
@@ -117,7 +157,7 @@ def _verify_and_get_teams(server_url: str, token: str) -> list[dict]:
         raise typer.Exit(1) from e
 
 
-@app.command()
+@_command()
 def init(
     browser: str = typer.Option(
         "auto", "--browser", help="Cookie 自動抽出に使うブラウザ"
@@ -174,7 +214,7 @@ def init(
     console.print("\nNext: [bold]mmsearch sync[/bold]")
 
 
-@app.command()
+@_command()
 def login(
     browser: str = typer.Option(
         "auto",
@@ -203,7 +243,7 @@ def login(
     console.print(f"[green]✓[/green] token saved via [bold]{where}[/bold]")
 
 
-@app.command()
+@_command()
 def reset(
     config_only: bool = typer.Option(
         False, "--config", help="設定とトークンのみ削除（DBは残す）"
@@ -254,7 +294,7 @@ def reset(
                 console.print(f"[green]✓[/green] removed {p}")
 
 
-@app.command(name="token-refresh")
+@_command(name="token-refresh")
 def token_refresh() -> None:
     """手動ペーストでトークンを更新する（ブラウザ自動取得なら [bold]login[/bold] を推奨）。"""
     cfg = config.Config.load()
@@ -276,7 +316,7 @@ def token_refresh() -> None:
     console.print(f"[green]✓[/green] token updated (via {where})")
 
 
-@app.command()
+@_command()
 def sync(
     full: bool = typer.Option(
         False, "--full", help="差分同期ではなく最初からフル同期する"
@@ -394,7 +434,7 @@ def _render_hit(hit, query: str) -> None:
     console.print()
 
 
-@app.command()
+@_command()
 def search(
     query: str = typer.Argument(..., help="検索キーワード（部分一致）"),
     channel: str = typer.Option(
@@ -450,7 +490,7 @@ def search(
         console.print(f"[dim]{count} result(s)[/dim]")
 
 
-@app.command(name="open")
+@_command(name="open")
 def open_(
     post_id: str = typer.Argument(..., help="投稿ID（検索結果の各ヒット末尾に表示される）"),
     print_only: bool = typer.Option(
@@ -480,7 +520,7 @@ def open_(
         console.print(f"[yellow]could not auto-open. URL:[/yellow] {url}")
 
 
-@app.command()
+@_command()
 def channels() -> None:
     """同期済みチャンネルの一覧と最終同期日時を表示する。"""
     db.init_db()
