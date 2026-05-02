@@ -16,9 +16,18 @@ from rich.progress import (
 )
 from rich.text import Text
 
-from . import __version__, client, config, db, tokens
+from . import __version__, auth, client, config, db, tokens
 from . import search as search_engine
 from . import sync as sync_engine
+
+NOT_CONFIGURED_HINT = (
+    "Run [bold]mmsearch init[/bold] to set up, "
+    "or [bold]mmsearch login[/bold] if config exists but token is missing."
+)
+TOKEN_MISSING_HINT = (
+    "Run [bold]mmsearch login[/bold] (browser auto-detect) "
+    "or [bold]mmsearch token-refresh[/bold] (manual paste)."
+)
 
 app = typer.Typer(
     name="mmsearch",
@@ -39,17 +48,18 @@ def version() -> None:
 def doctor() -> None:
     """Verify configuration and connectivity."""
     cfg = config.Config.load()
-    console.print(f"config: {config.config_path()}")
-    console.print(f"db:     {config.db_path()}")
+    console.print(f"config:  {config.config_path()}")
+    console.print(f"db:      {config.db_path()}")
+    console.print(f"storage: {tokens.storage_location()}")
 
     if not cfg.server_url:
-        err.print("[red]✗[/red] server_url not configured. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] server_url not configured. {NOT_CONFIGURED_HINT}")
         raise typer.Exit(1)
-    console.print(f"server: {cfg.server_url}")
+    console.print(f"server:  {cfg.server_url}")
 
     token = tokens.load_token()
     if not token:
-        err.print("[red]✗[/red] no token saved. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] no token saved. {TOKEN_MISSING_HINT}")
         raise typer.Exit(1)
 
     try:
@@ -58,7 +68,7 @@ def doctor() -> None:
             console.print(f"[green]✓[/green] authenticated as @{me['username']}")
     except client.AuthError as e:
         err.print(f"[red]✗[/red] {e}")
-        err.print("Run [bold]mmsearch token-refresh[/bold] to update your token.")
+        err.print(TOKEN_MISSING_HINT)
         raise typer.Exit(1) from e
     except client.MattermostError as e:
         err.print(f"[red]✗[/red] {e}")
@@ -74,8 +84,48 @@ def _validate_url(url: str) -> str:
     return url
 
 
+def _acquire_token(server_url: str, *, prefer_browser: bool, browser: str) -> str:
+    """Get a token either via browser cookie extraction or manual paste."""
+    if prefer_browser:
+        console.print(f"\n[dim]Extracting MMAUTHTOKEN from browser ({browser})...[/dim]")
+        try:
+            token, used = auth.extract_cookie(server_url, browser=browser)
+        except auth.CookieError as e:
+            err.print(f"[red]✗[/red] {e}")
+            raise typer.Exit(1) from e
+        console.print(f"[green]✓[/green] cookie extracted from [bold]{used}[/bold]")
+        return token
+
+    token = typer.prompt(
+        "MMAUTHTOKEN (browser DevTools → Cookies)", hide_input=True
+    ).strip()
+    if not token:
+        err.print("[red]✗[/red] token is required")
+        raise typer.Exit(1)
+    return token
+
+
+def _verify_and_get_teams(server_url: str, token: str) -> list[dict]:
+    """Verify token by calling /users/me, then return team list."""
+    try:
+        with client.MattermostClient(server_url, token) as c:
+            me = c.me()
+            console.print(f"[green]✓[/green] authenticated as @{me['username']}")
+            return c.my_teams()
+    except client.MattermostError as e:
+        err.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1) from e
+
+
 @app.command()
-def init() -> None:
+def init(
+    browser: str = typer.Option(
+        "auto", "--browser", help="Browser for cookie auto-extraction"
+    ),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Skip browser extraction; paste token manually"
+    ),
+) -> None:
     """Interactive setup wizard."""
     console.print("[bold]mmsearch initial setup[/bold]\n")
 
@@ -87,22 +137,17 @@ def init() -> None:
         except ValueError as e:
             err.print(f"[red]✗[/red] {e}")
 
-    token = typer.prompt(
-        "MMAUTHTOKEN (browser DevTools → Cookies)", hide_input=True
-    ).strip()
-    if not token:
-        err.print("[red]✗[/red] token is required")
-        raise typer.Exit(1)
+    if no_browser:
+        prefer_browser = False
+    else:
+        prefer_browser = typer.confirm(
+            "Extract MMAUTHTOKEN automatically from your browser?", default=True
+        )
+
+    token = _acquire_token(server_url, prefer_browser=prefer_browser, browser=browser)
 
     console.print("\n[dim]Verifying connection...[/dim]")
-    try:
-        with client.MattermostClient(server_url, token) as c:
-            me = c.me()
-            console.print(f"[green]✓[/green] authenticated as @{me['username']}")
-            teams = c.my_teams()
-    except client.MattermostError as e:
-        err.print(f"[red]✗[/red] {e}")
-        raise typer.Exit(1) from e
+    teams = _verify_and_get_teams(server_url, token)
 
     if not teams:
         err.print("[red]✗[/red] no teams found for this account")
@@ -127,6 +172,35 @@ def init() -> None:
     console.print(f"[green]✓[/green] token saved via [bold]{where}[/bold]")
     console.print(f"[green]✓[/green] db initialized → {config.db_path()}")
     console.print("\nNext: [bold]mmsearch sync[/bold]")
+
+
+@app.command()
+def login(
+    browser: str = typer.Option(
+        "auto",
+        "--browser",
+        help="Browser: auto/chrome/firefox/edge/brave/safari",
+    ),
+) -> None:
+    """Refresh the saved token by reading MMAUTHTOKEN from your browser."""
+    cfg = config.Config.load()
+    if not cfg.server_url:
+        err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
+        raise typer.Exit(1)
+
+    token = _acquire_token(cfg.server_url, prefer_browser=True, browser=browser)
+
+    console.print("[dim]Verifying token...[/dim]")
+    try:
+        with client.MattermostClient(cfg.server_url, token) as c:
+            me = c.me()
+            console.print(f"[green]✓[/green] authenticated as @{me['username']}")
+    except client.MattermostError as e:
+        err.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1) from e
+
+    where = tokens.save_token(token)
+    console.print(f"[green]✓[/green] token saved via [bold]{where}[/bold]")
 
 
 @app.command()
@@ -182,12 +256,15 @@ def reset(
 
 @app.command(name="token-refresh")
 def token_refresh() -> None:
-    """Update the saved token (e.g., after session expiry)."""
+    """Update the saved token by manual paste (use [bold]login[/bold] for browser auto-extract)."""
     cfg = config.Config.load()
     if not cfg.server_url:
-        err.print("[red]✗[/red] not configured. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
         raise typer.Exit(1)
     token = typer.prompt("New MMAUTHTOKEN", hide_input=True).strip()
+    if not token:
+        err.print("[red]✗[/red] token is required")
+        raise typer.Exit(1)
     try:
         with client.MattermostClient(cfg.server_url, token) as c:
             me = c.me()
@@ -208,12 +285,12 @@ def sync(
     """Sync posts from Mattermost into the local database."""
     cfg = config.Config.load()
     if not cfg.server_url or not cfg.team_id:
-        err.print("[red]✗[/red] not configured. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
         raise typer.Exit(1)
 
     token = tokens.load_token()
     if not token:
-        err.print("[red]✗[/red] no token saved. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] no token saved. {TOKEN_MISSING_HINT}")
         raise typer.Exit(1)
 
     db.init_db()
@@ -226,7 +303,7 @@ def sync(
                 channels = sync_engine.fetch_channels(c, cfg)
             except client.AuthError as e:
                 err.print(f"[red]✗[/red] {e}")
-                err.print("Run [bold]mmsearch token-refresh[/bold] to update.")
+                err.print(TOKEN_MISSING_HINT)
                 raise typer.Exit(1) from e
 
             if not channels:
@@ -381,7 +458,7 @@ def open_(
     """Open a post in your default browser."""
     cfg = config.Config.load()
     if not cfg.server_url:
-        err.print("[red]✗[/red] not configured. Run [bold]mmsearch init[/bold].")
+        err.print(f"[red]✗[/red] not configured. {NOT_CONFIGURED_HINT}")
         raise typer.Exit(1)
 
     db.init_db()

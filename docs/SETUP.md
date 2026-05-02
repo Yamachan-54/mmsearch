@@ -22,9 +22,33 @@ pip install -e .
 
 ## 2. MMAUTHTOKEN の取得
 
-`MMAUTHTOKEN` はブラウザがMattermostのセッションを維持するためのCookieです。これを使ってAPIアクセスします。
+### 推奨: ブラウザから自動取得
 
-### 取得手順
+ブラウザでMattermostにログイン済みであれば、`mmsearch init` または `mmsearch login` が自動でCookieを抽出します。**SSO（Google/SAML）でも動きます**。
+
+```bash
+mmsearch init
+# Mattermost URL: ...
+# Extract MMAUTHTOKEN automatically from your browser? [Y/n] y
+# → Chrome / Firefox / Edge / Brave / Safari の順で自動検出
+```
+
+特定のブラウザを指定したい場合:
+
+```bash
+mmsearch init --browser firefox
+mmsearch login --browser chrome
+```
+
+サポートブラウザ: `auto` / `chrome` / `firefox` / `edge` / `brave` / `safari`（macOSのみ）
+
+### フォールバック: 手動ペースト
+
+ブラウザCookie抽出が失敗する場合（例: ブラウザのCookie暗号化が解除できない）、手動でペーストできます。
+
+`MMAUTHTOKEN` はブラウザがMattermostのセッションを維持するためのCookieです。
+
+#### 取得手順
 
 1. ブラウザで対象のMattermostにログイン
 2. **F12** で DevTools（開発者ツール）を開く
@@ -34,9 +58,16 @@ pip install -e .
 4. Cookie一覧から **`MMAUTHTOKEN`** を探す
 5. その「値（Value）」列の長い文字列をコピー
 
+#### 取得した値の登録
+
+```bash
+mmsearch init --no-browser     # 初回セットアップ時に手動ペースト
+mmsearch token-refresh         # 既存設定のトークンだけ更新
+```
+
 ### 取得時の注意
 
-- セッションが切れると無効になります（数日〜数週間）。切れたら `mmsearch token-refresh` で再設定
+- セッションが切れると無効になります（数日〜数週間）。切れたら `mmsearch login` で再取得
 - パスワードと同等の機密情報です。**メモ・スクショ・チャット等で他人に渡さないこと**
 
 ## 3. 初期セットアップウィザード
@@ -118,7 +149,8 @@ mmsearch open <post_id>
 | 状況 | コマンド |
 |------|---------|
 | 新着投稿を取り込む | `mmsearch sync` |
-| トークン期限切れ | `mmsearch token-refresh` |
+| トークン期限切れ（推奨） | `mmsearch login` |
+| トークン期限切れ（手動ペースト） | `mmsearch token-refresh` |
 | 全部やり直したい | `mmsearch reset --yes && mmsearch init` |
 | DBだけリセット | `mmsearch reset --db --yes && mmsearch sync --full` |
 

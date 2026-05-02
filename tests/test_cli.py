@@ -110,6 +110,39 @@ def test_search_all_flag_returns_everything() -> None:
     assert "15 result(s)" in result.output
 
 
+def test_help_lists_login_command() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "login" in result.output
+
+
+def test_login_unconfigured_exits_1() -> None:
+    result = runner.invoke(app, ["login"])
+    assert result.exit_code == 1
+    assert "not configured" in result.output.lower()
+
+
+def test_login_help_mentions_browser() -> None:
+    result = runner.invoke(app, ["login", "--help"])
+    assert result.exit_code == 0
+    assert "--browser" in result.output
+
+
+def test_init_help_mentions_browser_options() -> None:
+    result = runner.invoke(app, ["init", "--help"])
+    assert result.exit_code == 0
+    assert "--browser" in result.output
+    assert "--no-browser" in result.output
+
+
+def test_doctor_unconfigured_shows_actionable_hint() -> None:
+    """Error message should point at both init AND login (PR2 hint update)."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "init" in result.output
+    assert "login" in result.output
+
+
 def test_reset_yes_no_existing_data_succeeds() -> None:
     result = runner.invoke(app, ["reset", "--yes"])
     assert result.exit_code == 0
