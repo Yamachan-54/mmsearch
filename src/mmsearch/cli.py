@@ -330,10 +330,16 @@ def search(
     until: str = typer.Option(
         None, "--until", help="Until date (YYYY-MM-DD or YYYY-MM-DDTHH:MM)"
     ),
-    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    limit: int = typer.Option(
+        search_engine.DEFAULT_LIMIT, "--limit", "-n", help="Max results"
+    ),
+    all_results: bool = typer.Option(
+        False, "--all", help="Return every match, ignoring --limit"
+    ),
 ) -> None:
     """Search posts in the local database."""
     db.init_db()
+    effective_limit = None if all_results else limit
     try:
         hits = search_engine.search(
             query,
@@ -341,7 +347,7 @@ def search(
             user=user,
             since=since,
             until=until,
-            limit=limit,
+            limit=effective_limit,
         )
     except ValueError as e:
         err.print(f"[red]✗[/red] {e}")
@@ -353,7 +359,16 @@ def search(
 
     for h in hits:
         _render_hit(h, query)
-    console.print(f"[dim]{len(hits)} result(s)[/dim]")
+
+    count = len(hits)
+    if effective_limit is not None and count >= effective_limit:
+        console.print(
+            f"[dim]{count} result(s) shown[/dim] "
+            f"[yellow]— limit reached, more may exist. Use [bold]-n {count * 2}[/bold] "
+            f"or [bold]--all[/bold] to see more.[/yellow]"
+        )
+    else:
+        console.print(f"[dim]{count} result(s)[/dim]")
 
 
 @app.command(name="open")

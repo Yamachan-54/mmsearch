@@ -46,6 +46,9 @@ def _parse_date(s: str) -> int:
     return int(dt.timestamp() * 1000)
 
 
+DEFAULT_LIMIT = 100
+
+
 def search(
     query: str,
     *,
@@ -53,13 +56,16 @@ def search(
     user: str | None = None,
     since: str | None = None,
     until: str | None = None,
-    limit: int = 50,
+    limit: int | None = DEFAULT_LIMIT,
     db_path: Path | None = None,
 ) -> list[SearchHit]:
-    """Search posts. `channel` matches against name OR display_name (substring)."""
+    """Search posts. `channel` matches against name OR display_name (substring).
+
+    `limit=None` means no limit (return every match).
+    """
     if not query.strip():
         return []
-    if limit <= 0:
+    if limit is not None and limit <= 0:
         return []
 
     sql_parts = [
@@ -95,8 +101,9 @@ def search(
         params.append(_parse_date(until))
 
     sql_parts.append("ORDER BY p.create_at DESC")
-    sql_parts.append("LIMIT ?")
-    params.append(limit)
+    if limit is not None:
+        sql_parts.append("LIMIT ?")
+        params.append(limit)
 
     sql = " ".join(sql_parts)
 

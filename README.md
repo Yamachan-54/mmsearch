@@ -70,8 +70,10 @@ mmsearch search "質問" -c "課題" --since 2026-04-01
 | `mmsearch doctor` | 設定・接続確認 |
 | `mmsearch sync` | 投稿を同期（差分） |
 | `mmsearch sync --full` | フル再取得 |
-| `mmsearch search "kw"` | 検索 |
-| `mmsearch search "kw" -c general -u alice --since 2026-04-01 -n 100` | 複合フィルタ |
+| `mmsearch search "kw"` | 検索（デフォルト最新100件） |
+| `mmsearch search "kw" -n 500` | 件数を増やす |
+| `mmsearch search "kw" --all` | 全件表示（件数制限なし） |
+| `mmsearch search "kw" -c general -u alice --since 2026-04-01` | 複合フィルタ |
 | `mmsearch open <post_id>` | ブラウザで該当投稿を開く |
 | `mmsearch open <post_id> --print` | URLだけ表示 |
 | `mmsearch channels` | 同期済みチャンネル一覧 |
