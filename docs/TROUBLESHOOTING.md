@@ -6,15 +6,49 @@
 
 **原因**: トークンが期限切れ、または無効化された。
 
-**対処**:
+**対処（推奨）**:
 
-1. ブラウザで対象のMattermostにアクセスし、再ログイン
-2. DevTools で新しい `MMAUTHTOKEN` を取得（[手順](SETUP.md#2-mmauthtoken-の取得)）
-3. 以下を実行:
+ブラウザで対象のMattermostに再ログイン後:
+
+```bash
+mmsearch login
+```
+
+**対処（手動ペースト）**:
+
+ブラウザCookie抽出が動かない場合は、DevToolsで取得した値を手動入力:
 
 ```bash
 mmsearch token-refresh
 ```
+
+### `mmsearch sync` で「no token saved」が出る
+
+**原因**: OS keyring からトークンを取り出せない（dbus未接続のWSL/SSHセッション等でよく発生）。
+
+**症状**: `init` 直後は動くが、ターミナルを再起動すると同じエラーが出続ける。
+
+**対処1（推奨・恒久対応）**:
+
+ファイル保存に切り替える:
+
+```bash
+export MMSEARCH_TOKEN_STORAGE=file
+```
+
+`~/.bashrc` または `~/.zshrc` に追記して永続化。その後:
+
+```bash
+mmsearch login
+```
+
+**対処2（毎回解消）**:
+
+```bash
+mmsearch login         # ブラウザから再取得
+```
+
+`init` で「token saved via **file**」と表示されればfile fallbackが効いており、次回以降のセッションでも問題なく動きます。
 
 ### `unauthorized (403)`
 
