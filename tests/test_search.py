@@ -104,6 +104,17 @@ def test_search_limit(db_path: Path) -> None:
     assert len(hits) == 2
 
 
+def test_search_default_limit_is_100(db_path: Path) -> None:
+    """Default limit is 100 (PR1)."""
+    assert search.DEFAULT_LIMIT == 100
+
+
+def test_search_limit_none_returns_all(db_path: Path) -> None:
+    """limit=None disables LIMIT clause and returns every match."""
+    hits = search.search("実装", limit=None, db_path=db_path)
+    assert {h.post_id for h in hits} == {"p1", "p2", "p4"}
+
+
 def test_search_empty_query(db_path: Path) -> None:
     assert search.search("", db_path=db_path) == []
     assert search.search("   ", db_path=db_path) == []

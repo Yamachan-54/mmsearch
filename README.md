@@ -45,7 +45,9 @@ mmsearch init
 ウィザードで以下を聞かれます:
 
 - **Mattermost のURL** — 例: `https://mattermost.example.com`
-- **MMAUTHTOKEN** — ブラウザのCookieから取得（[詳細手順](docs/SETUP.md)）
+- **ブラウザから自動取得しますか? [Y/n]**
+  - **Yes (推奨)**: ブラウザのCookieから自動でトークン取得（SSO対応）
+  - **No**: DevToolsで取得した値を手動ペースト（[詳細手順](docs/SETUP.md)）
 
 ### 3. 投稿の同期
 
@@ -66,16 +68,20 @@ mmsearch search "質問" -c "課題" --since 2026-04-01
 
 | コマンド | 用途 |
 |---------|------|
-| `mmsearch init` | 対話式セットアップ |
+| `mmsearch init` | 対話式セットアップ（推奨：ブラウザから自動取得） |
+| `mmsearch login` | ブラウザから新トークン取得（セッション切れ時） |
+| `mmsearch login --browser chromium` | ブラウザ指定（chrome/chromium/firefox/edge/brave/vivaldi/opera/safari） |
 | `mmsearch doctor` | 設定・接続確認 |
 | `mmsearch sync` | 投稿を同期（差分） |
 | `mmsearch sync --full` | フル再取得 |
-| `mmsearch search "kw"` | 検索 |
-| `mmsearch search "kw" -c general -u alice --since 2026-04-01 -n 100` | 複合フィルタ |
+| `mmsearch search "kw"` | 検索（デフォルト最新100件） |
+| `mmsearch search "kw" -n 500` | 件数を増やす |
+| `mmsearch search "kw" --all` | 全件表示（件数制限なし） |
+| `mmsearch search "kw" -c general -u alice --since 2026-04-01` | 複合フィルタ |
 | `mmsearch open <post_id>` | ブラウザで該当投稿を開く |
 | `mmsearch open <post_id> --print` | URLだけ表示 |
 | `mmsearch channels` | 同期済みチャンネル一覧 |
-| `mmsearch token-refresh` | トークン更新（セッション切れ時） |
+| `mmsearch token-refresh` | 手動ペーストでトークン更新 |
 | `mmsearch reset` | ローカルデータ削除 |
 
 `--help` / `-h` で各コマンドの詳細が見られます。
@@ -89,6 +95,14 @@ mmsearch search "質問" -c "課題" --since 2026-04-01
 | データベース | `~/.local/share/mmsearch/mmsearch.db` |
 
 `XDG_CONFIG_HOME` / `XDG_DATA_HOME` 環境変数で変更可能。
+
+### トークン保存先の制御
+
+OSのkeyringが使えない環境（headless WSL等）では自動的にファイル保存にfallbackします。明示的にファイル保存を強制したい場合:
+
+```bash
+export MMSEARCH_TOKEN_STORAGE=file
+```
 
 ## ドキュメント
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from mmsearch import db
 from mmsearch.cli import _validate_url, app
 
 runner = CliRunner()
@@ -16,6 +17,25 @@ def _isolate_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect XDG paths to tmp so tests never touch the user's real config."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+
+def _seed_posts(n: int, *, message: str = "match") -> None:
+    """Populate isolated DB with n posts that all match `message`."""
+    db.init_db()
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO channels (id, team_id, name, display_name, type, last_synced_at) "
+            "VALUES ('c1', 't1', 'general', 'General', 'O', 0)"
+        )
+        conn.execute(
+            "INSERT INTO users (id, username) VALUES ('u1', 'alice')"
+        )
+        for i in range(n):
+            conn.execute(
+                "INSERT INTO posts (id, channel_id, user_id, create_at, update_at, message) "
+                "VALUES (?, 'c1', 'u1', ?, ?, ?)",
+                (f"p{i}", 1_700_000_000_000 + i, 1_700_000_000_000 + i, f"{message} {i}"),
+            )
 
 
 def test_version() -> None:
@@ -58,6 +78,69 @@ def test_search_empty_db_returns_no_results() -> None:
 def test_search_invalid_date_exits_1() -> None:
     result = runner.invoke(app, ["search", "x", "--since", "not-a-date"])
     assert result.exit_code == 1
+
+
+def test_search_help_mentions_all_flag() -> None:
+    result = runner.invoke(app, ["search", "--help"])
+    assert result.exit_code == 0
+    assert "--all" in result.output
+
+
+def test_search_warns_when_limit_reached() -> None:
+    """When results == limit, show 'limit reached' notice."""
+    _seed_posts(10)
+    result = runner.invoke(app, ["search", "match", "-n", "5"])
+    assert result.exit_code == 0
+    assert "limit reached" in result.output
+
+
+def test_search_no_warning_below_limit() -> None:
+    """When results < limit, no warning."""
+    _seed_posts(3)
+    result = runner.invoke(app, ["search", "match", "-n", "10"])
+    assert result.exit_code == 0
+    assert "limit reached" not in result.output
+
+
+def test_search_all_flag_returns_everything() -> None:
+    _seed_posts(15)
+    result = runner.invoke(app, ["search", "match", "--all"])
+    assert result.exit_code == 0
+    assert "limit reached" not in result.output
+    assert "15 result(s)" in result.output
+
+
+def test_help_lists_login_command() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "login" in result.output
+
+
+def test_login_unconfigured_exits_1() -> None:
+    result = runner.invoke(app, ["login"])
+    assert result.exit_code == 1
+    assert "not configured" in result.output.lower()
+
+
+def test_login_help_mentions_browser() -> None:
+    result = runner.invoke(app, ["login", "--help"])
+    assert result.exit_code == 0
+    assert "--browser" in result.output
+
+
+def test_init_help_mentions_browser_options() -> None:
+    result = runner.invoke(app, ["init", "--help"])
+    assert result.exit_code == 0
+    assert "--browser" in result.output
+    assert "--no-browser" in result.output
+
+
+def test_doctor_unconfigured_shows_actionable_hint() -> None:
+    """Error message should point at both init AND login (PR2 hint update)."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "init" in result.output
+    assert "login" in result.output
 
 
 def test_reset_yes_no_existing_data_succeeds() -> None:
