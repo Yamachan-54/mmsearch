@@ -32,21 +32,38 @@ TOKEN_MISSING_HINT = (
 )
 
 
-class _JapaneseHelpMixin:
-    """`--help` のデフォルト説明文（英語）を日本語に差し替える mixin。
+# typer / Click が動的に生成するオプションは英語固定のため、help を日本語に差し替える。
+# 旗（flag）名でディスパッチすることで、表示順や個数が変わっても安全に対応できる。
+_OPTION_HELP_JA = {
+    "--help": "このヘルプを表示して終了する。",
+    "--install-completion": "現在のシェル用の補完設定をインストールする。",
+    "--show-completion": "現在のシェル用の補完スクリプトを表示する（コピー・手動セットアップ用）。",
+}
 
-    Click のデフォルトでは `--help` の help テキストが英語固定
-    （"Show this message and exit."）。グループとサブコマンドの両方で
-    `get_help_option` を上書きする必要があるため、共通処理を mixin にしている。
-    Click の内部実装に依存するため、将来の Click 大型アップデート時に追従が
-    必要になる可能性がある。
+
+class _JapaneseHelpMixin:
+    """typer / Click が自動生成するオプションの英語 help を日本語に差し替える mixin。
+
+    対象は `--help` と `--install-completion` / `--show-completion`。
+    グループとサブコマンドの両方で適用する必要があるため、共通処理を mixin にしている。
+    Click の内部実装（`get_help_option` / `get_params`）に依存するため、将来の
+    Click 大型アップデート時に追従が必要になる可能性がある。
     """
 
     def get_help_option(self, ctx: click.Context) -> click.Option | None:
         opt = super().get_help_option(ctx)
         if opt is not None:
-            opt.help = "このヘルプを表示して終了する。"
+            opt.help = _OPTION_HELP_JA["--help"]
         return opt
+
+    def get_params(self, ctx: click.Context) -> list[click.Parameter]:
+        params = super().get_params(ctx)
+        for p in params:
+            for flag in getattr(p, "opts", ()):
+                if flag in _OPTION_HELP_JA:
+                    p.help = _OPTION_HELP_JA[flag]
+                    break
+        return params
 
 
 class JapaneseTyperCommand(_JapaneseHelpMixin, TyperCommand):
@@ -61,8 +78,6 @@ app = typer.Typer(
     name="mmsearch",
     help="Mattermost のメッセージをローカルで全文検索する CLI ツール",
     no_args_is_help=True,
-    # シェル補完の自動インストールオプションは受講生向け配布では不要なので無効化
-    add_completion=False,
     cls=JapaneseTyperGroup,
 )
 
