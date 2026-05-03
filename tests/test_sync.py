@@ -1,4 +1,4 @@
-"""Tests for sync engine using mocked Mattermost API."""
+"""同期エンジンのテスト（Mattermost API は pytest-httpx でモック）。"""
 from __future__ import annotations
 
 import sqlite3
@@ -50,7 +50,7 @@ def _post(pid: str, channel: str, user: str, msg: str, ts: int) -> dict:
 
 def test_upsert_channel_idempotent(conn: sqlite3.Connection) -> None:
     sync.upsert_channel(conn, _ch())
-    sync.upsert_channel(conn, _ch())  # second call should not error
+    sync.upsert_channel(conn, _ch())  # 2回目の呼び出しでも例外を出さない
     rows = conn.execute("SELECT id, name FROM channels").fetchall()
     assert len(rows) == 1
     assert rows[0][1] == "general"
@@ -60,7 +60,7 @@ def test_upsert_channel_preserves_last_synced(conn: sqlite3.Connection) -> None:
     sync.upsert_channel(conn, _ch())
     conn.execute("UPDATE channels SET last_synced_at = 12345 WHERE id = 'c1'")
     conn.commit()
-    # Update channel meta — last_synced_at must NOT be reset
+    # チャンネル名変更等で再 upsert されても last_synced_at がリセットされないこと
     sync.upsert_channel(conn, _ch(name="general-renamed"))
     row = conn.execute(
         "SELECT name, display_name, last_synced_at FROM channels WHERE id = 'c1'"
@@ -75,10 +75,9 @@ def test_sync_channel_full_paginates(
 ) -> None:
     sync.upsert_channel(conn, _ch())
 
-    # Page 0: full page (200 posts simulated as 2 to keep test fast,
-    # so we set per_page to 2 via monkeypatch below isn't needed — we mock pagination
-    # by returning a "full" page (== PER_PAGE) followed by a partial page)
-    # Easier: use monkeypatched PER_PAGE
+    # テスト高速化のため PER_PAGE を 2 に差し替えて少ない件数でページネーションを再現する。
+    # 「per_page と同じ件数のページ」「per_page 未満のページ」「空のページ」を順に返すことで
+    # 終端判定（len(order) < PER_PAGE で break）の動作も確認している。
     posts_p0 = {f"p{i}": _post(f"p{i}", "c1", "u1", f"msg{i}", 1000 + i) for i in range(2)}
     posts_p1 = {f"p{i}": _post(f"p{i}", "c1", "u1", f"msg{i}", 900 + i) for i in range(2, 4)}
     posts_p2: dict = {}
@@ -100,7 +99,7 @@ def test_sync_channel_full_paginates(
         json={"id": "u1", "username": "alice", "nickname": "A"},
     )
 
-    # Patch PER_PAGE for this test
+    # PER_PAGE を一時的に差し替える（モジュール定数なので finally で必ず戻す）
     orig = sync.PER_PAGE
     sync.PER_PAGE = 2
     try:
@@ -117,12 +116,12 @@ def test_sync_channel_full_paginates(
     assert n == 4
     rows = conn.execute("SELECT id FROM posts ORDER BY id").fetchall()
     assert [r[0] for r in rows] == ["p0", "p1", "p2", "p3"]
-    # last_synced_at should equal max create_at = 1001
+    # last_synced_at は取得した投稿の中で最大の create_at に更新されること
     last = conn.execute(
         "SELECT last_synced_at FROM channels WHERE id = 'c1'"
     ).fetchone()[0]
     assert last == 1001
-    # User was upserted
+    # ユーザー情報が同時に upsert されていること
     u = conn.execute("SELECT username FROM users WHERE id = 'u1'").fetchone()
     assert u[0] == "alice"
 
@@ -135,8 +134,8 @@ def test_sync_channel_incremental_uses_since(
     conn.commit()
 
     new_posts = {"pNew": _post("pNew", "c1", "u1", "新着", 6000)}
+    # 期待値: since = last_synced_at(5000) - SINCE_OVERLAP_MS(1000) = 4000
     httpx_mock.add_response(
-        # since = 5000 - SINCE_OVERLAP_MS = 4000
         url=f"{BASE}/api/v4/channels/c1/posts?page=0&per_page={sync.PER_PAGE}&since=4000",
         json={"order": ["pNew"], "posts": new_posts},
     )
@@ -170,7 +169,7 @@ def test_fetch_channels_filter_applies(
 def test_ensure_users_skips_existing(
     conn: sqlite3.Connection, httpx_mock, client: mm_client.MattermostClient
 ) -> None:
-    # Pre-populate one user
+    # 既知のユーザー u1 をあらかじめDBに登録しておく
     conn.execute("INSERT INTO users (id, username) VALUES ('u1', 'alice')")
     conn.commit()
 
@@ -179,9 +178,10 @@ def test_ensure_users_skips_existing(
         json={"id": "u2", "username": "bob"},
     )
 
+    # u1 は API 呼び出しが発生してはならない。pytest-httpx は未モックの
+    # リクエストでテストを失敗させるため、本テストが通ること自体が
+    # 「DB既存ユーザーの API 呼び出しスキップ」を保証している。
     cache: set[str] = set()
     sync._ensure_users(conn, client, {"u1", "u2"}, cache)
-    # u1 should not have triggered an HTTP call (only u2 mocked); pytest-httpx fails
-    # if unmatched calls occur, so the test's existence proves it.
     rows = sorted(r[0] for r in conn.execute("SELECT username FROM users"))
     assert rows == ["alice", "bob"]

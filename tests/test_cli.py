@@ -1,4 +1,4 @@
-"""CLI smoke tests via typer.testing."""
+"""CLI のスモークテスト（typer.testing.CliRunner ベース）。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,13 +14,13 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def _isolate_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect XDG paths to tmp so tests never touch the user's real config."""
+    """XDG パスを tmp に向けて、ユーザーの実環境を汚染しないようにする。"""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
 
 
 def _seed_posts(n: int, *, message: str = "match") -> None:
-    """Populate isolated DB with n posts that all match `message`."""
+    """`message` にマッチする投稿を n 件 DB に投入する（CLI検索テスト用）。"""
     db.init_db()
     with db.transaction() as conn:
         conn.execute(
@@ -87,7 +87,7 @@ def test_search_help_mentions_all_flag() -> None:
 
 
 def test_search_warns_when_limit_reached() -> None:
-    """When results == limit, show 'limit reached' notice."""
+    """ヒット数が limit に達したら「limit reached」の警告が出ること。"""
     _seed_posts(10)
     result = runner.invoke(app, ["search", "match", "-n", "5"])
     assert result.exit_code == 0
@@ -95,7 +95,7 @@ def test_search_warns_when_limit_reached() -> None:
 
 
 def test_search_no_warning_below_limit() -> None:
-    """When results < limit, no warning."""
+    """ヒット数が limit 未満なら警告は出さないこと。"""
     _seed_posts(3)
     result = runner.invoke(app, ["search", "match", "-n", "10"])
     assert result.exit_code == 0
@@ -136,7 +136,7 @@ def test_init_help_mentions_browser_options() -> None:
 
 
 def test_doctor_unconfigured_shows_actionable_hint() -> None:
-    """Error message should point at both init AND login (PR2 hint update)."""
+    """未設定エラーは `init` と `login` の両方を案内すること。"""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1
     assert "init" in result.output

@@ -1,4 +1,4 @@
-"""Tests for browser cookie extraction."""
+"""ブラウザCookie抽出のテスト。"""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -15,7 +15,7 @@ def _cookie(name: str, value: str) -> SimpleNamespace:
 
 @pytest.fixture
 def fake_bc3(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Replace the browser_cookie3 alias with a controllable mock."""
+    """browser_cookie3 のエイリアスを差し替えて挙動を制御可能にする。"""
     fake = MagicMock()
     monkeypatch.setattr(auth, "_bc3", fake)
     return fake
@@ -33,7 +33,7 @@ def test_extract_specific_browser(fake_bc3: MagicMock) -> None:
 
 
 def test_extract_auto_tries_browsers_in_order(fake_bc3: MagicMock) -> None:
-    """auto should try chrome → chromium → firefox → ... and stop at first hit."""
+    """auto は chrome → chromium → firefox → ... の順で試行し、最初の成功で打ち切ること。"""
     fake_bc3.chrome.side_effect = RuntimeError("no chrome profile")
     fake_bc3.chromium.side_effect = RuntimeError("no chromium profile")
     fake_bc3.firefox.return_value = [_cookie("MMAUTHTOKEN", "ff_token")]
@@ -49,7 +49,7 @@ def test_extract_auto_tries_browsers_in_order(fake_bc3: MagicMock) -> None:
 
 
 def test_extract_chromium_specifically(fake_bc3: MagicMock) -> None:
-    """Chromium has a separate profile path from Chrome; must support it."""
+    """Chromium は Chrome と別プロファイルパスのため、独立してサポートする必要がある。"""
     fake_bc3.chromium.return_value = [_cookie("MMAUTHTOKEN", "chromium_token")]
     token, used = auth.extract_cookie("https://mm.example.com", browser="chromium")
     assert token == "chromium_token"
@@ -59,7 +59,7 @@ def test_extract_chromium_specifically(fake_bc3: MagicMock) -> None:
 
 def test_extract_auto_collects_errors_when_all_fail(fake_bc3: MagicMock) -> None:
     fake_bc3.chrome.side_effect = RuntimeError("err1")
-    fake_bc3.firefox.return_value = []  # no MMAUTHTOKEN
+    fake_bc3.firefox.return_value = []  # MMAUTHTOKEN が見つからないケース
     fake_bc3.edge.side_effect = RuntimeError("err3")
     fake_bc3.brave.side_effect = RuntimeError("err4")
     fake_bc3.safari.side_effect = RuntimeError("err5")
@@ -96,7 +96,7 @@ def test_extract_when_bc3_not_installed(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_extract_passes_domain_only_not_full_url(fake_bc3: MagicMock) -> None:
-    """Domain extraction should strip scheme and path."""
+    """URL からスキームとパスを取り除いた domain だけを browser_cookie3 に渡すこと。"""
     fake_bc3.chrome.return_value = [_cookie("MMAUTHTOKEN", "x")]
     auth.extract_cookie("https://mm.example.com:8443/path?q=1", browser="chrome")
     fake_bc3.chrome.assert_called_once_with(domain_name="mm.example.com:8443")
