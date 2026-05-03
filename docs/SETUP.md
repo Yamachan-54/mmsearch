@@ -11,7 +11,7 @@
 ## 1. リポジトリ取得 & インストール
 
 ```bash
-git clone https://github.com/<your-account>/mmsearch.git
+git clone git@github.com:Yamachan-54/mmsearch.git
 cd mmsearch
 python3 -m venv .venv
 source .venv/bin/activate
