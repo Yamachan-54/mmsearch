@@ -1,4 +1,17 @@
-"""SQLite database with FTS5 trigram tokenizer for Japanese search."""
+"""SQLite データベース層。日本語検索のため FTS5 trigram tokenizer を使用する。
+
+trigram tokenizer を選ぶ理由:
+- 標準ビルドの SQLite に含まれており、追加のネイティブ依存が不要
+- 3文字単位で索引を張るため、`LIKE '%query%'` が trigram 索引で加速される
+- 形態素解析（MeCab/Lindera 等）と異なり、単語境界を持たない日本語でも
+  「実装」「再実装」「実装する」のような部分一致が自然に動く
+
+注意:
+- `MATCH` クエリは2文字以下のトークンを索引と照合できない（FTS5 仕様）。
+  検索層 (search.py) は `LIKE '%query%'` を使うことでこの制限を回避している。
+- `posts_fts` は外部コンテンツテーブル方式（content='posts'）を使用。
+  本体テーブルへの INSERT/UPDATE/DELETE と同期させるためトリガが必須。
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -46,6 +59,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
     tokenize='trigram'
 );
 
+-- 外部コンテンツ FTS5 は本体テーブル変更を自動追従しないため、トリガで同期する
 CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
     INSERT INTO posts_fts(rowid, message) VALUES (new.rowid, new.message);
 END;
@@ -65,13 +79,15 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     db = path or config.db_path()
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
+    # WAL モード: 書き込み中も読み取りがブロックされないため、
+    # sync 中に search を走らせても応答性が落ちない
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
 def init_db(path: Path | None = None) -> None:
-    """Create schema if not present. Idempotent."""
+    """スキーマを作成する。すでに存在する場合は何もしない（冪等）。"""
     conn = connect(path)
     try:
         conn.executescript(SCHEMA)

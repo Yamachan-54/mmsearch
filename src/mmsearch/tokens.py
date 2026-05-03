@@ -1,17 +1,17 @@
-"""Token storage with OS keyring + file fallback.
+"""トークンの永続化層（OS keyring + ファイル fallback）。
 
-Some Linux desktops install the `keyring` Python package but lack a working
-backend (e.g., headless WSL with no D-Bus). In that case `keyring.set_password`
-silently succeeds against the "fail" backend and `get_password` returns None
-later, so users see "no token saved" after init reported success.
+一部の Linux デスクトップ環境（D-Bus が利用できない headless WSL 等）では、
+`keyring` パッケージはインストールされていてもバックエンドが機能せず、
+`set_password` がサイレントに「失敗の成功」を返すことがある。その結果
+`get_password` は後で None を返し、`init` 直後は動いていたはずなのに次回
+セッション以降「no token saved」エラーが出続けるという症状になる。
 
-To prevent this, `save_token` performs a **read-back verification** after
-writing to keyring. If the token cannot be read back, it falls back to a
-0600-mode file at `<config_dir>/token`.
+これを防ぐため `save_token` は書き込み直後に **read-back 検証** を行う。
+読み戻しに失敗した場合は 0600 パーミッションのファイル
+(`<config_dir>/token`) に自動的に fallback する。
 
-Set the environment variable `MMSEARCH_TOKEN_STORAGE=file` to bypass keyring
-entirely and always use the file backend (useful for headless / shared / CI
-environments).
+環境変数 `MMSEARCH_TOKEN_STORAGE=file` を設定すると、keyring を一切使わず
+ファイル保存に固定できる（CI / 共有環境 / デバッグ用途）。
 """
 from __future__ import annotations
 
@@ -40,8 +40,8 @@ def _save_to_file(token: str) -> None:
 
 
 def _save_to_keyring(token: str) -> bool:
-    """Attempt to save to OS keyring, then verify by read-back.
-    Returns True only if the token was actually persisted.
+    """OS keyring へ保存し、read-back で実際に永続化されたか検証する。
+    実際に保存できた場合のみ True を返す。
     """
     try:
         import keyring
@@ -58,16 +58,17 @@ def _save_to_keyring(token: str) -> bool:
 
 
 def save_token(token: str) -> str:
-    """Save token. Returns 'keyring' or 'file' indicating where it ended up."""
+    """トークンを保存する。実際に格納された場所 ('keyring' / 'file') を返す。"""
     if not _force_file() and _save_to_keyring(token):
-        # Clean any stale fallback file
+        # keyring に成功したら、過去の fallback ファイルが残っていれば削除する
+        # (load_token が誤って古いトークンを返してしまうのを防ぐため)
         fp = _fallback_path()
         if fp.exists():
             fp.unlink()
         return "keyring"
 
     _save_to_file(token)
-    # Also clear any stale keyring entry so load_token doesn't get a stale value
+    # ファイル保存にした場合も、古い keyring エントリが残っていれば消す
     if not _force_file():
         with contextlib.suppress(Exception):
             import keyring
@@ -94,7 +95,7 @@ def load_token() -> str | None:
 
 
 def storage_location() -> str:
-    """Where is the token currently stored? 'keyring' / 'file' / 'none'."""
+    """現在トークンが格納されている場所を返す: 'keyring' / 'file' / 'none'。"""
     if _force_file():
         return "file" if _fallback_path().exists() else "none"
     try:

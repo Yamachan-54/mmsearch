@@ -1,10 +1,13 @@
-"""Local full-text search against synced posts.
+"""ローカルDBに対する全文検索層。
 
-Uses LIKE '%query%' which is accelerated by the FTS5 trigram index.
-This works for any query length (including 1-2 char Japanese substrings),
-where MATCH would fail.
+検索クエリには `LIKE '%query%'` を使う。`MATCH` ではなく `LIKE` を選ぶ理由:
 
-Filters can be combined: channel/user/date range/limit.
+- FTS5 の `MATCH` は2文字以下のトークンを索引と照合できない（仕様）。
+  日本語の2文字キーワード（例: 「朝活」「実装」）が必須要件のためこれは致命的。
+- 一方 `posts_fts.message LIKE '%query%'` は trigram 索引で加速されるため、
+  任意長クエリで十分な速度が出る。日本語2文字でも動く。
+
+フィルタ条件: チャンネル / ユーザー / 日付範囲 / 件数 を組み合わせて利用可能。
 """
 from __future__ import annotations
 
@@ -23,17 +26,24 @@ class SearchHit:
     channel_name: str
     channel_display_name: str
     username: str
-    create_at: int  # ms epoch
+    create_at: int  # ミリ秒エポック（Mattermost API の精度に合わせる）
     message: str
 
 
+# CLI のデフォルト件数。100 件あれば多くのケースで足りるが、
+# 大量ヒット時は警告表示と --all フラグで補完する設計（PR #1）。
+DEFAULT_LIMIT = 100
+
+
 def _like_escape(s: str) -> str:
-    """Escape LIKE wildcards. Use with `ESCAPE '\\'`."""
+    """LIKE のワイルドカード文字をエスケープする。SQL 側で `ESCAPE '\\'` と組で使う。"""
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _parse_date(s: str) -> int:
-    """ISO date/datetime → ms epoch. Naive datetimes interpreted as UTC."""
+    """ISO 形式の日付/日時文字列をミリ秒エポックに変換する。
+    タイムゾーン未指定の場合は UTC として解釈する。
+    """
     s = s.strip().replace(" ", "T")
     try:
         dt = datetime.fromisoformat(s)
@@ -46,9 +56,6 @@ def _parse_date(s: str) -> int:
     return int(dt.timestamp() * 1000)
 
 
-DEFAULT_LIMIT = 100
-
-
 def search(
     query: str,
     *,
@@ -59,9 +66,11 @@ def search(
     limit: int | None = DEFAULT_LIMIT,
     db_path: Path | None = None,
 ) -> list[SearchHit]:
-    """Search posts. `channel` matches against name OR display_name (substring).
+    """投稿を検索する。
 
-    `limit=None` means no limit (return every match).
+    - `channel` はチャンネル名 / display_name 両方に対する部分一致
+    - `user` は username の完全一致
+    - `limit=None` は LIMIT 句を発行せず全件返す（CLI の --all 用）
     """
     if not query.strip():
         return []
@@ -128,7 +137,7 @@ def search(
 
 
 def get_post(post_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
-    """Look up a single post for the `open` command."""
+    """単一の投稿を取得する（`mmsearch open` 等で使う）。"""
     conn = db.connect(db_path)
     try:
         row = conn.execute(
@@ -147,5 +156,9 @@ def get_post(post_id: str, *, db_path: Path | None = None) -> dict[str, Any] | N
 
 
 def make_permalink(server_url: str, post_id: str) -> str:
-    """Build a Mattermost permalink. `_redirect/pl/<id>` works without knowing team name."""
+    """Mattermost のパーマリンクを生成する。
+
+    `_redirect/pl/<post_id>` 形式はチーム名を知らなくてもサーバ側で正しい
+    投稿にリダイレクトしてくれるため、こちらを採用している。
+    """
     return f"{server_url.rstrip('/')}/_redirect/pl/{post_id}"

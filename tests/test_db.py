@@ -1,11 +1,11 @@
-"""Tests for database schema and FTS5 trigram tokenizer behavior.
+"""データベーススキーマと FTS5 trigram tokenizer の動作テスト。
 
-Notes on FTS5 + trigram tokenizer for Japanese:
-- The trigram tokenizer indexes 3-character sequences.
-- `MATCH 'query'` requires 3+ characters; 1-2 char queries return no rows.
-- For substring search of any length, use `LIKE '%query%'` against the FTS5
-  table — SQLite accelerates this through the trigram index automatically.
-- This is the query pattern P3 (`mmsearch search`) will use.
+trigram tokenizer + 日本語の挙動メモ:
+- trigram tokenizer は3文字単位で索引を張る
+- `MATCH 'query'` は3文字以上のクエリが必要。1〜2文字では何もヒットしない
+- 任意長の部分一致検索には FTS5 テーブルに対して `LIKE '%query%'` を使う。
+  SQLite は trigram 索引を自動的に活用してくれる
+- 検索コマンド (mmsearch search) はこの `LIKE` パターンを採用している
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_fts5_like_japanese_2char_substring(tmp_path: Path) -> None:
 
 
 def test_fts5_match_3char_word(tmp_path: Path) -> None:
-    """3文字以上のクエリは MATCH も動作する（より高速・関連度スコア取得可）。"""
+    """3文字以上のクエリは MATCH でもヒットする（参考: 関連度スコアを取りたい場合に使う）。"""
     p = tmp_path / "test.db"
     db.init_db(p)
     conn = sqlite3.connect(p)

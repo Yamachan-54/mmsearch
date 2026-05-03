@@ -1,4 +1,4 @@
-"""Tests for local search."""
+"""ローカル検索のテスト。"""
 from __future__ import annotations
 
 import sqlite3
@@ -77,13 +77,11 @@ def test_search_filter_user(db_path: Path) -> None:
 
 
 def test_search_filter_since(db_path: Path) -> None:
-    # since "2023-11-14T22:13:30Z"  approximately p2 onwards
-    hits = search.search(
-        "実装", since="2023-11-14T22:14", db_path=db_path
-    )
-    # p1 is at create_at 1_700_000_000_000 = 2023-11-14T22:13:20Z
-    # p2 is at 1_700_000_100_000 = 2023-11-14T22:15:00Z
-    # p4 is at 1_700_000_300_000 = 2023-11-14T22:18:20Z
+    # 各投稿の create_at（ミリ秒エポック）と対応するUTC日時:
+    # p1: 1_700_000_000_000 = 2023-11-14T22:13:20Z
+    # p2: 1_700_000_100_000 = 2023-11-14T22:15:00Z
+    # p4: 1_700_000_300_000 = 2023-11-14T22:18:20Z
+    hits = search.search("実装", since="2023-11-14T22:14", db_path=db_path)
     assert {h.post_id for h in hits} == {"p2", "p4"}
 
 
@@ -105,12 +103,12 @@ def test_search_limit(db_path: Path) -> None:
 
 
 def test_search_default_limit_is_100(db_path: Path) -> None:
-    """Default limit is 100 (PR1)."""
+    """デフォルト件数は 100 件。"""
     assert search.DEFAULT_LIMIT == 100
 
 
 def test_search_limit_none_returns_all(db_path: Path) -> None:
-    """limit=None disables LIMIT clause and returns every match."""
+    """limit=None を渡すと LIMIT 句が発行されず、全件返る（CLI の --all 用）。"""
     hits = search.search("実装", limit=None, db_path=db_path)
     assert {h.post_id for h in hits} == {"p1", "p2", "p4"}
 
@@ -121,7 +119,7 @@ def test_search_empty_query(db_path: Path) -> None:
 
 
 def test_search_like_special_chars_escaped(db_path: Path) -> None:
-    """% in query should match literal %, not as wildcard."""
+    """`%` をクエリに含めても LIKE のワイルドカードとして展開されないこと。"""
     hits = search.search("100%", db_path=db_path)
     assert {h.post_id for h in hits} == {"p5"}
 
@@ -148,7 +146,7 @@ def test_make_permalink() -> None:
         search.make_permalink("https://mm.example.com", "abc123")
         == "https://mm.example.com/_redirect/pl/abc123"
     )
-    # trailing slash on URL
+    # URL末尾のスラッシュは正規化される
     assert (
         search.make_permalink("https://mm.example.com/", "abc123")
         == "https://mm.example.com/_redirect/pl/abc123"

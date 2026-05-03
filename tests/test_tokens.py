@@ -1,4 +1,4 @@
-"""Tests for token storage with read-back verification and file fallback."""
+"""トークン保存（read-back 検証 + ファイル fallback）のテスト。"""
 from __future__ import annotations
 
 import os
@@ -19,7 +19,7 @@ def _isolate_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_keyring(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Inject a controllable fake `keyring` module."""
+    """挙動を制御可能なフェイク `keyring` モジュールを差し込む。"""
     fake = MagicMock()
     fake._store = {}
 
@@ -49,7 +49,7 @@ def test_save_to_keyring_when_working(fake_keyring: MagicMock) -> None:
 def test_save_falls_back_to_file_when_keyring_silently_drops(
     fake_keyring: MagicMock,
 ) -> None:
-    """Simulate keyring backend that 'succeeds' but doesn't persist."""
+    """成功を返すが実際には保存しない keyring バックエンドを再現する。"""
     fake_keyring.set_password.side_effect = lambda *a, **kw: None  # no-op
     fake_keyring.get_password.return_value = None
 
@@ -76,16 +76,17 @@ def test_force_file_via_env(
     monkeypatch.setenv(tokens.STORAGE_ENV, "file")
     where = tokens.save_token("abc123")
     assert where == "file"
-    # keyring should not have been touched
+    # 環境変数指定時は keyring に一切触れないこと
     assert fake_keyring.set_password.call_count == 0
 
 
 def test_save_clears_stale_file_on_keyring_success(fake_keyring: MagicMock) -> None:
-    # First save to file (simulate prior failure scenario)
+    # 過去にファイル fallback で保存されていた状態を再現
     tokens._save_to_file("OLD")
     assert tokens._fallback_path().exists()
 
-    # Now keyring works → file should be removed
+    # keyring が復活した場合は古いファイルを削除し、load_token が
+    # 新しい値を返すようにする
     where = tokens.save_token("NEW")
     assert where == "keyring"
     assert not tokens._fallback_path().exists()
@@ -98,7 +99,8 @@ def test_save_clears_stale_keyring_on_file_save(fake_keyring: MagicMock) -> None
 
     where = tokens.save_token("NEW")
     assert where == "file"
-    # stale keyring entry should have been wiped so load_token gets the right value
+    # 逆方向: keyring が壊れた場合は古い keyring エントリを消し、
+    # load_token がファイル経由の新値を返すようにする
     assert ("mmsearch", "mattermost_token") not in fake_keyring._store
     assert tokens.load_token() == "NEW"
 
@@ -118,7 +120,7 @@ def test_storage_location(fake_keyring: MagicMock) -> None:
 
 def test_delete_token_removes_both(fake_keyring: MagicMock) -> None:
     tokens.save_token("abc")
-    tokens._save_to_file("abc")  # also create a file
+    tokens._save_to_file("abc")  # ファイル側も用意して両方の削除を検証
 
     tokens.delete_token()
     assert ("mmsearch", "mattermost_token") not in fake_keyring._store

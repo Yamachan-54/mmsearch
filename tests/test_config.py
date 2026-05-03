@@ -1,4 +1,4 @@
-"""Tests for config load/save."""
+"""設定ファイルの保存・読み込みテスト。"""
 from __future__ import annotations
 
 import os
@@ -17,7 +17,7 @@ def test_config_roundtrip(tmp_path: Path, monkeypatch) -> None:
     cfg.save()
     assert config.config_path().exists()
 
-    # Permissions check (should be 0600 on POSIX)
+    # POSIX では 0600 になっていること
     mode = os.stat(config.config_path()).st_mode & 0o777
     assert mode == 0o600
 
